@@ -1,0 +1,130 @@
+# Uno Card Game
+# Deck, Dealing, Hand, Uno, Legal Moves & Game State
+# Katherine Arroyo
+# Last Edit 10/21/24
+
+import pickle
+import threading
+import socket
+import random
+
+def unoDeck():
+    colors = ['Red', 'Green', 'Blue', 'Yellow']
+    values = [str(i) for i in range(0, 10) + ['Skip', 'Reverse', 'Draw Two']]
+    deck = []
+
+    for color in colors:
+        deck.append(f"{color} 0")
+        for value in values[1:]:
+            deck.extend([f"{color} {value}",f"{color} {value}"])
+
+    random.shuffle(deck)
+    return deck
+
+def dealCards(deck, numPlayers):
+    hands = {f'Player {i+1}': [] for i in range(numPlayers)}
+    for _ in range(7):
+        for player in hands:
+            hands[player].append(deck.pop())
+
+    return hands
+
+def showHand(player, hands):
+    return hands.get(player, [])
+
+def callUno(player, hands):
+    if len(hands[player]) == 1:
+        return f"{player} calls UNO!"
+    return f"Player cannot call UNO."
+
+def isLegalMove(currentCard, chosenCard):
+    currentColor, currentValue = currentCard.split(' ')
+    chosenColor, chosenValue = chosenCard.split(' ')
+
+    if chosenColor == currentColor or chosenValue == currentValue:
+        return True
+    if 'Wild' in chosenCard:
+        return True
+    return False
+
+# TCP / IP
+def sendGameState(gameState, conn):
+    data = pickle.dumps(gameState) # game state to byte stream
+    conn.sendall(data)
+
+def recieveGameState(conn):
+    data = conn.recv(4096) # fixes buffer size
+    gameState = pickle.loads(data) # byte stream to dictionary
+    return gameState
+
+
+# multiplayer connections
+def handlePlayerConnections(conn, addr, players, gameState):
+    playerID = len(players) + 1
+    playerName = f'Player {playerID}'
+
+    players[playerID] = {'conn': conn, 'name': playerName}
+    print(f"{playerName} connected from {addr}")
+
+    broadcastGameState(gameState, players)
+
+    playerGameLoop(playerID, conn, gameState, players)
+
+def playerGameLoop(playerID, conn, gameState, players):
+    try:
+        while True:
+            gameState = recieveGameState(conn)
+
+            if isLegalMove(gameState['current_card'], gameState['chosen_card']):
+                processMove(playerID, gameState, players)
+
+            broadcastGameState(gameState, players)
+
+    except Exception as e:
+        print(f"{players[playerID]['name']} disconnected: {e}")
+        handleDisconnection(playerID, gameState, players)
+
+
+def processMove(playerID, gameState, players):
+    print(f"Processing move from {players[playerID]['name']}")
+
+def broadcastGameState(gameState, players):
+    for player in players.values():
+        try:
+            sendGameState(gameState, player['conn'])
+        except Exception as e:
+            print(f"Failed to send game state to {player['name']}: {e}")
+
+def handleDisconnection(playerID, gameState, players):
+    print(f"{players[playerID]['name']} has left the game.")
+
+    del players[playerID]
+
+    broadcastGameState(gameState, players)
+
+def reconnectPlayer(playerID, conn, players, gameState):
+    if playerID in players:
+        players[playerID]['conn'] = conn # updates connection
+        print(f"{players[playerID]['name']} has reconnected.")
+
+        sendGameState(gameState, conn)
+    else:
+        print(f"Player {playerID} cannot be reconnected.")
+
+def nextPlayer(gameState, players):
+    currentPlayer = gameState[currentPlayer]
+    nextPlayerID = (currentPlayer % len(players)) + 1
+
+    gameState['currentPlayer'] = nextPlayerID
+    return nextPlayerID
+
+def initializeGameState(players):
+    gameState = {
+        'deck': unoDeck(),
+        'hands': dealCards(unoDeck(), len(players)),
+        'currentPlayer': 1,
+        'currentCard': None,
+    }
+    return gameState
+
+
