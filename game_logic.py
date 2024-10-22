@@ -20,14 +20,7 @@ def initialize_game(players):
     """
     deck = create_deck()
     game_state = {
-        'top_card': draw_first_card(deck),
-        'current_turn': 0,
-        'total_players': len(players),
-        'reverse_order': False,
-        'skip_next_player': False,
-        'draw_cards': 0,
-        'wild_card_played': False,
-        'players': players
+        # Initial game state
     }
 
     #Initialize the first card by drawing from the deck (functionality not shown here)
